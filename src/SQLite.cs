@@ -2022,6 +2022,8 @@ namespace SQLite
 		public string DatabasePath { get; private set; }
 		public bool StoreDateTimeAsTicks { get; private set; }
 
+		public bool StoreDateTimeAsTicks { get; private set; }
+
 #if NETFX_CORE
 		static readonly string MetroStyleDataPath = Windows.Storage.ApplicationData.Current.LocalFolder.Path;
 
@@ -2582,7 +2584,7 @@ namespace SQLite
 
 		public string CommandText { get; set; }
 
-		internal SQLiteCommand (SQLiteConnection conn)
+		public SQLiteCommand (SQLiteConnection conn)
 		{
 			_conn = conn;
 			_bindings = new List<Binding> ();
@@ -2925,6 +2927,7 @@ namespace SQLite
 				}
                 else if (clrType == typeof(Uri)) {
                     var text = SQLite3.ColumnString(stmt, index);
+                    var text = SQLite3.ColumnString(stmt, index);
                     return new Uri(text);
                 }
 				else if (clrType == typeof (StringBuilder)) {
@@ -3064,6 +3067,7 @@ namespace SQLite
 		List<Ordering> _orderBys;
 		int? _limit;
 		int? _offset;
+		bool _distinct;
 
 		BaseTableQuery _joinInner;
 		Expression _joinInnerKeySelector;
@@ -3072,6 +3076,7 @@ namespace SQLite
 		Expression _joinSelector;
 
 		Expression _selector;
+		string _selectionList;
 
 		TableQuery (SQLiteConnection conn, TableMapping table)
 		{
@@ -3095,12 +3100,14 @@ namespace SQLite
 			}
 			q._limit = _limit;
 			q._offset = _offset;
+			q._distinct = _distinct;
 			q._joinInner = _joinInner;
 			q._joinInnerKeySelector = _joinInnerKeySelector;
 			q._joinOuter = _joinOuter;
 			q._joinOuterKeySelector = _joinOuterKeySelector;
 			q._joinSelector = _joinSelector;
 			q._selector = _selector;
+			q._selectionList = _selectionList;
 			return q;
 		}
 
@@ -3175,6 +3182,13 @@ namespace SQLite
 		{
 			var q = Clone<T> ();
 			q._offset = n;
+			return q;
+		}
+
+		public TableQuery<T> Distinct()
+		{
+			var q = Clone<T>();
+			q._distinct = true;
 			return q;
 		}
 
@@ -3292,12 +3306,45 @@ namespace SQLite
 
 		// Not needed until Joins are supported
 		// Keeping this commented out forces the default Linq to objects processor to run
-		//public TableQuery<TResult> Select<TResult> (Expression<Func<T, TResult>> selector)
-		//{
-		//	var q = Clone<TResult> ();
-		//	q._selector = selector;
-		//	return q;
-		//}
+		public TableQuery<TResult> Select<TResult> (Expression<Func<T, TResult>> selector)
+		{
+			var q = Clone<TResult> ();
+			q._selector = selector;
+			q._selectionList = SelectToString(selector);
+			return q;
+		}
+
+		public string SelectToString<TResult>(Expression<Func<T, TResult>> select)
+		{
+			var sqls = new List<string>();
+			if (select.Body is NewExpression)
+			{
+				var expr = ((NewExpression)select.Body);
+				if (expr.Members.Count() == expr.Arguments.Count())
+				for (int i = 0; i < expr.Members.Count(); i++)
+					sqls.Add(typeof(T).Name + "." + ((System.Linq.Expressions.MemberExpression)expr.Arguments[i]).Member.Name + " as " + expr.Members[i].Name);
+			}
+			if (select.Body is MemberInitExpression)
+			{
+				var expr = ((MemberInitExpression)select.Body);
+				for (int i = 0; i < expr.Bindings.Count(); i++)
+				{
+					var assignment = (System.Linq.Expressions.MemberAssignment)expr.Bindings[i]; 
+					if(assignment.Expression is MemberExpression)
+						sqls.Add(typeof(T).Name + "." + ((System.Linq.Expressions.MemberExpression)assignment.Expression).Member.Name + " as " + expr.Bindings[i].Member.Name);
+					else if(assignment.Expression is UnaryExpression)
+					sqls.Add(typeof(T).Name + "." + ((System.Linq.Expressions.MemberExpression)((System.Linq.Expressions.UnaryExpression)assignment.Expression).Operand).Member.Name + " as " + expr.Bindings[i].Member.Name);
+
+
+				}
+			}
+			if (select.Body is MemberExpression)
+			{
+				var expr = ((MemberExpression)select.Body);
+				sqls.Add(typeof(T).Name + "." + expr.Member.Name);
+			}
+			return String.Join(", ", sqls);
+		}
 
 		private SQLiteCommand GenerateCommand (string selectionList)
 		{
@@ -3305,7 +3352,8 @@ namespace SQLite
 				throw new NotSupportedException ("Joins are not supported.");
 			}
 			else {
-				var cmdText = "select " + selectionList + " from \"" + Table.TableName + "\"";
+				selectionList = _selectionList ?? selectionList;
+				var cmdText = "select " + (_distinct? "distinct " : "") + selectionList + " from \"" + Table.TableName + "\"";
 				var args = new List<object> ();
 				if (_where != null) {
 					var w = CompileExpr (_where, args);
