@@ -55,8 +55,7 @@ using Sqlite3Statement = System.IntPtr;
 
 #pragma warning disable 1591 // XML Doc Comments
 
-namespace SQLite
-{
+namespace SQLite {
 	public class SQLiteException : Exception
 	{
 		public SQLite3.Result Result { get; private set; }
@@ -2022,8 +2021,6 @@ namespace SQLite
 		public string DatabasePath { get; private set; }
 		public bool StoreDateTimeAsTicks { get; private set; }
 
-		public bool StoreDateTimeAsTicks { get; private set; }
-
 #if NETFX_CORE
 		static readonly string MetroStyleDataPath = Windows.Storage.ApplicationData.Current.LocalFolder.Path;
 
@@ -2926,7 +2923,6 @@ namespace SQLite
 					return new Guid (text);
 				}
                 else if (clrType == typeof(Uri)) {
-                    var text = SQLite3.ColumnString(stmt, index);
                     var text = SQLite3.ColumnString(stmt, index);
                     return new Uri(text);
                 }
